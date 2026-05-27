@@ -83,11 +83,45 @@ def transcode_video(
             logger.info(f"[RUN ] ({attempt}/{max_retries}) {file_path} -> {output_path}")
             subprocess.run(cmd, check=True)
             if delete_original:
+                # try:
+                #     os.remove(file_path)
+                #     logger.info(f"[OK  ] Saved {output_path} and deleted {file_path}")
+                # except Exception as del_err:
+                #     logger.warning(f"[WARN] Saved {output_path} but failed to delete original: {del_err}")
+
                 try:
-                    os.remove(file_path)
-                    logger.info(f"[OK  ] Saved {output_path} and deleted {file_path}")
+
+                    original_size = os.path.getsize(file_path)
+                    resized_size = os.path.getsize(output_path)
+
+                    logger.info(
+                        f"[INFO] Original={original_size} bytes | "
+                        f"Resized={resized_size} bytes"
+                    )
+
+                    # resized is smaller -> keep resized, delete original
+                    if resized_size < original_size:
+
+                        os.remove(file_path)
+
+                        logger.info(
+                            f"[OK  ] Saved smaller resized file: {output_path} "
+                            f"and deleted original: {file_path}"
+                        )
+
+                    # resized is larger/same -> delete resized, rename original
+                    else:
+                        os.remove(output_path)
+                        os.rename(file_path, output_path)
+                        logger.info(
+                            f"[OK  ] Resized file was larger/same size. "
+                            f"Kept original and renamed to: {output_path}"
+                        )
                 except Exception as del_err:
-                    logger.warning(f"[WARN] Saved {output_path} but failed to delete original: {del_err}")
+                    logger.warning(
+                        f"[WARN] Size comparison/cleanup failed: {del_err}"
+                    )
+
             else:
                 logger.info(f"[OK  ] Saved {output_path} (original kept)")
             return True
