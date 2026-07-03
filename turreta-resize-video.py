@@ -4,6 +4,7 @@ import uuid
 import argparse
 import logging
 import subprocess
+import configparser
 from datetime import datetime
 
 SUPPORTED_EXTENSIONS = ('.mpg', '.mp4')
@@ -142,11 +143,21 @@ def scan_and_process_videos(
     crf: int,
     preset: str,
     delete_original: bool,
-    limit: int
+    limit: int,
+    pconfig_path: str
 ):
     processed = 0
     for root, _, files in os.walk(base_dir):
         for filename in sorted(files):  # deterministic order
+
+            emergency_stop = read_emergency_stop(pconfig_path)
+            if emergency_stop:
+                logger.warning(
+                    "[STOP] emergencyStop=true found in INI file. "
+                    "Stopping before next file."
+                )
+                return
+
             if processed >= limit:
                 logger.info(f"[INFO] Reached limit of {limit} files. Stopping.")
                 return
@@ -165,6 +176,25 @@ def scan_and_process_videos(
                     processed += 1
     if processed == 0:
         logger.info("[INFO] No eligible .mpg files found (or all were skipped).")
+
+def read_emergency_stop(pconfig_path: str) -> bool:
+    """
+    Reads emergencyStop from an INI file.
+
+    Expected format:
+        [control]
+        emergencyStop=false
+
+    If the file, section, or key is missing, returns False.
+    """
+    config = configparser.ConfigParser()
+    config.read(pconfig_path, encoding="utf-8")
+
+    return config.getboolean(
+        "control",
+        "emergencyStop",
+        fallback=False
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -189,10 +219,26 @@ if __name__ == "__main__":
                         help="Max number of videos to process this run. Default: 5")
     parser.add_argument("--delete-originals", action="store_true",
                         help="If set, delete original .mpg after a successful transcode.")
+    parser.add_argument(
+        "--config-path",
+        default="resize_video.ini",
+        help="Path to INI config file. Default: resize_video.ini in the current directory."
+    )
     args = parser.parse_args()
+
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     logger = setup_logger(script_dir)
+
+    config_path = args.config_path
+
+    logger.info(f"[INFO] Config file: {os.path.abspath(config_path)}")
+
+    if not os.path.exists(config_path):
+        logger.warning(
+            f"[WARN] Config file not found: {os.path.abspath(config_path)}. "
+            "Using emergencyStop=false."
+        )
 
     if os.path.isdir(args.directory):
         logger.info(f"[START] base_dir={args.directory} width={args.width} crf={args.crf} "
@@ -206,7 +252,8 @@ if __name__ == "__main__":
             crf=args.crf,
             preset=args.preset,
             delete_original=args.delete_originals,
-            limit=args.limit
+            limit=args.limit,
+            pconfig_path=config_path
         )
         logger.info("[DONE]")
     else:
